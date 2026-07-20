@@ -12,5 +12,4 @@
 
 # Ansible
 *.retry
-ansible/inventory*
-!ansible/inventory*/example*
+ansible/inventory.ini

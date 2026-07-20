@@ -1,0 +1,16 @@
+[all:vars]
+ansible_user=${ansible_user}
+ansible_ssh_private_key_file=${ssh_key_path}
+ansible_python_interpreter=/usr/bin/python3
+
+[master]
+master ansible_host=${master_public_ip}
+
+[workers]
+%{ for i, ip in worker_public_ips ~}
+worker-${i + 1} ansible_host=${ip.public_ip}
+%{ endfor ~}
+
+[k8s:children]
+master
+workers

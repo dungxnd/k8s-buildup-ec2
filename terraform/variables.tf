@@ -27,16 +27,6 @@ variable "key_name" {
   type        = string
 }
 
-variable "vpc_id" {
-  description = "VPC ID"
-  type        = string
-}
-
-variable "subnet_id" {
-  description = "Subnet ID"
-  type        = string
-}
-
 variable "ssh_private_key_path" {
   description = "Path to SSH private key for Ansible"
   type        = string

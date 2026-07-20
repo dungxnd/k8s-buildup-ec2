@@ -4,6 +4,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.9"
+    }
   }
 
   required_version = ">= 1.5"
@@ -11,6 +15,17 @@ terraform {
 
 provider "aws" {
   region = var.region
+}
+
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
 }
 
 data "aws_ami" "ubuntu" {
@@ -36,7 +51,7 @@ data "aws_ami" "ubuntu" {
 resource "aws_security_group" "k8s" {
   name        = "${var.cluster_name}-sg"
   description = "Security group for Kubernetes cluster"
-  vpc_id      = var.vpc_id
+  vpc_id      = data.aws_vpc.default.id
 
   ingress {
     description = "SSH"
@@ -104,7 +119,7 @@ resource "aws_spot_instance_request" "k8s" {
   ami           = data.aws_ami.ubuntu.id
   instance_type = var.instance_type
   key_name      = var.key_name
-  subnet_id     = var.subnet_id
+  subnet_id     = data.aws_subnets.default.ids[0]
 
   vpc_security_group_ids = [aws_security_group.k8s.id]
 
@@ -121,4 +136,16 @@ resource "aws_spot_instance_request" "k8s" {
     Name = "${var.cluster_name}-node-${count.index + 1}"
     Role = count.index == 0 ? "master" : "worker"
   }
+}
+
+resource "local_file" "ansible_inventory" {
+  filename = "${path.module}/../ansible/inventory.ini"
+  content  = templatefile("${path.module}/inventory.tftpl", {
+    master_public_ip  = coalesce(aws_spot_instance_request.k8s[0].public_ip, "")
+    worker_public_ips = slice(aws_spot_instance_request.k8s, 1, var.node_count)
+    ssh_key_path      = var.ssh_private_key_path
+    ansible_user      = "ubuntu"
+  })
+
+  depends_on = [aws_spot_instance_request.k8s]
 }
