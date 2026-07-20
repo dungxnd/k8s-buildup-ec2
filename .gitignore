@@ -13,3 +13,6 @@
 # Ansible
 *.retry
 ansible/inventory.ini
+
+.bob
+.commandcode
