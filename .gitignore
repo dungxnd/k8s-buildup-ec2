@@ -1,0 +1,16 @@
+# SSH
+*.pem
+*.pem.pub
+**/.ssh/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+*.tfvars
+
+# Ansible
+*.retry
+ansible/inventory*
+!ansible/inventory*/example*
