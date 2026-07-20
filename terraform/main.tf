@@ -114,18 +114,23 @@ resource "aws_security_group" "k8s" {
   }
 }
 
-resource "aws_spot_instance_request" "k8s" {
+resource "aws_instance" "k8s" {
   count         = var.node_count
   ami           = data.aws_ami.ubuntu.id
   instance_type = var.instance_type
   key_name      = var.key_name
   subnet_id     = data.aws_subnets.default.ids[0]
 
-  vpc_security_group_ids = [aws_security_group.k8s.id]
+  vpc_security_group_ids      = [aws_security_group.k8s.id]
+  associate_public_ip_address = true
 
-  spot_type                      = "persistent"
-  wait_for_fulfillment           = true
-  associate_public_ip_address    = true
+  instance_market_options {
+    market_type = "spot"
+    spot_options {
+      instance_interruption_behavior = "stop"
+      spot_instance_type             = "persistent"
+    }
+  }
 
   root_block_device {
     volume_size = var.root_volume_size
@@ -141,11 +146,11 @@ resource "aws_spot_instance_request" "k8s" {
 resource "local_file" "ansible_inventory" {
   filename = "${path.module}/../ansible/inventory.ini"
   content  = templatefile("${path.module}/inventory.tftpl", {
-    master_public_ip  = coalesce(aws_spot_instance_request.k8s[0].public_ip, "")
-    worker_public_ips = slice(aws_spot_instance_request.k8s, 1, var.node_count)
+    master_public_ip  = coalesce(aws_instance.k8s[0].public_ip, "")
+    worker_public_ips = slice(aws_instance.k8s, 1, var.node_count)
     ssh_key_path      = var.ssh_private_key_path
     ansible_user      = "ubuntu"
   })
 
-  depends_on = [aws_spot_instance_request.k8s]
+  depends_on = [aws_instance.k8s]
 }
