@@ -62,6 +62,14 @@ resource "aws_security_group" "k8s" {
   }
 
   ingress {
+    description = "Allow all traffic between cluster nodes"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
+  }
+
+  ingress {
     description = "Kube-apiserver"
     from_port   = 6443
     to_port     = 6443
@@ -85,21 +93,7 @@ resource "aws_security_group" "k8s" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  ingress {
-    description = "Calico BGP"
-    from_port   = 179
-    to_port     = 179
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
 
-  ingress {
-    description = "Calico VXLAN"
-    from_port   = 4789
-    to_port     = 4789
-    protocol    = "udp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
 
   egress {
     description = "Allow all outbound"
