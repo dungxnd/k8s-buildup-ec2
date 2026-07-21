@@ -13,10 +13,10 @@ make all
 
 # Or with DuckDNS HTTPS enabled:
 #   make infra
-#   ansible-playbook -i ansible/inventory.ini ansible/site.yml --tags banking-demo \
-#     -e 'banking_demo.duckdns.enabled=true' \
-#     -e 'banking_demo.duckdns.domain=mybank.duckdns.org' \
-#     -e duckdns_token=your-token
+    ansible-playbook -i ansible/inventory.ini ansible/site.yml --tags banking-demo \
+      -e 'banking_demo.duckdns.enabled=true' \
+      -e 'banking_demo.duckdns.domain=mybank.duckdns.org' \
+      -e duckdns_token=your-token
 
 # Clean up
 make destroy
