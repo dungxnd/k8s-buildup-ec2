@@ -1,0 +1,62 @@
+---
+# ─── Install Helm ───
+- name: Check if helm is installed
+  ansible.builtin.command: helm version --short
+  register: helm_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Install Helm
+  ansible.builtin.shell: |
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4 | bash
+  when: helm_check.rc != 0
+  args:
+    creates: /usr/local/bin/helm
+
+# ─── Clone repo ───
+- name: Clone banking-demo repository
+  ansible.builtin.git:
+    repo: "{{ banking_demo.repo_url }}"
+    dest: "{{ banking_demo.clone_dir }}"
+    version: "{{ banking_demo.repo_version }}"
+    force: true
+
+# ─── DuckDNS A-record update (only if enabled) ───
+- name: Update DuckDNS A record
+  ansible.builtin.uri:
+    url: "https://www.duckdns.org/update?domains={{ banking_demo.duckdns.domain | regex_replace('\\.duckdns\\.org$', '') }}&token={{ duckdns_token }}&ip={{ ansible_host }}"
+    method: GET
+  register: duckdns_response
+  failed_when: "'OK' not in duckdns_response.content"
+  when: banking_demo.duckdns.enabled | bool
+
+# ─── Helm deploy ───
+- name: Deploy banking-demo via Helm
+  ansible.builtin.command:
+    cmd: >
+      helm upgrade --install {{ banking_demo.helm_release_name }}
+      {{ banking_demo.clone_dir }}/{{ banking_demo.helm_chart_path }}
+      --namespace {{ banking_demo.helm_namespace }}
+      --create-namespace
+      --wait
+      --timeout {{ banking_demo.helm_wait_timeout }}
+      {% if banking_demo.duckdns.enabled | bool %}
+      --set duckdns.enabled=true
+      --set duckdns.domain={{ banking_demo.duckdns.domain }}
+      --set duckdns.token={{ duckdns_token }}
+      {% endif %}
+  register: helm_result
+
+- name: Show Helm output
+  ansible.builtin.debug:
+    msg: "{{ helm_result.stdout_lines }}"
+
+- name: Show deployed pods
+  ansible.builtin.command:
+    cmd: "kubectl get pods -n {{ banking_demo.helm_namespace }}"
+  register: pod_status
+  changed_when: false
+
+- name: Display pod status
+  ansible.builtin.debug:
+    var: pod_status.stdout_lines

@@ -1,0 +1,88 @@
+---
+- name: Add Kubernetes APT key
+  ansible.builtin.get_url:
+    url: "https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/Release.key"
+    dest: /etc/apt/keyrings/kubernetes.asc
+    mode: "0644"
+
+- name: Add Kubernetes APT repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes.asc] https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/ /"
+    state: present
+    filename: kubernetes
+
+- name: Install kubelet, kubeadm, kubectl
+  ansible.builtin.apt:
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+    state: present
+    update_cache: true
+
+- name: Hold kubelet, kubeadm, kubectl versions
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+# ─── Master-only tasks ───
+- name: Check if cluster is already initialized
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: kubeconfig_check
+  when: inventory_hostname in groups['master']
+
+- name: Initialize Kubernetes control plane
+  ansible.builtin.command:
+    cmd: "kubeadm init --pod-network-cidr={{ pod_network_cidr }}"
+  register: kubeadm_init
+  when:
+    - inventory_hostname in groups['master']
+    - not kubeconfig_check.stat.exists
+
+- name: Create .kube directory
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.kube"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+  when: inventory_hostname in groups['master']
+
+- name: Copy admin.conf to user kubeconfig
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "/home/{{ ansible_user }}/.kube/config"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0600"
+    remote_src: true
+  when: inventory_hostname in groups['master']
+
+- name: Get kubeadm join command
+  ansible.builtin.command:
+    cmd: kubeadm token create --print-join-command
+  register: join_cmd
+  when: inventory_hostname in groups['master']
+
+- name: Save join command as fact
+  ansible.builtin.set_fact:
+    kubeadm_join: "{{ join_cmd.stdout }}"
+  when: inventory_hostname in groups['master']
+
+# ─── Worker-only tasks ───
+- name: Check if node is already joined
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf_check
+  when: inventory_hostname in groups['workers']
+
+- name: Join cluster
+  ansible.builtin.command: "{{ hostvars[groups['master'][0]]['kubeadm_join'] }}"
+  when:
+    - inventory_hostname in groups['workers']
+    - not kubelet_conf_check.stat.exists

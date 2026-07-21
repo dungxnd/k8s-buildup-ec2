@@ -1,0 +1,13 @@
+---
+banking_demo:
+  repo_url: "https://github.com/dungxnd/banking-demo-revamp.git"
+  repo_version: "main"
+  clone_dir: "/home/ubuntu/banking-demo"
+  helm_release_name: "banking-demo"
+  helm_namespace: "banking"
+  helm_chart_path: "helm"
+  helm_wait_timeout: "5m"
+
+  duckdns:
+    enabled: false
+    domain: ""

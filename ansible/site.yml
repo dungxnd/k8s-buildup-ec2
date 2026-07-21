@@ -1,0 +1,52 @@
+---
+- name: Configure all nodes
+  hosts: all
+  become: true
+  roles:
+    - os-hardening
+    - containerd
+  tags:
+    - os
+    - containerd
+
+- name: Initialize Kubernetes cluster
+  hosts: master
+  become: true
+  roles:
+    - kubernetes
+    - cni
+  tags:
+    - k8s
+    - cni
+
+- name: Join workers
+  hosts: workers
+  become: true
+  serial: 1
+  roles:
+    - kubernetes
+  tags:
+    - k8s
+
+- name: Verify cluster nodes are Ready
+  hosts: master
+  become: false
+  tasks:
+    - name: Wait for all nodes to become Ready
+      ansible.builtin.shell: |
+        kubectl get nodes --no-headers 2>/dev/null | awk '{print $2}' | grep -cv Ready
+      register: not_ready
+      until: not_ready.stdout == "0"
+      retries: 30
+      delay: 10
+      changed_when: false
+  tags:
+    - verify
+
+- name: Deploy banking-demo application
+  hosts: master
+  become: false
+  roles:
+    - banking-demo
+  tags:
+    - banking-demo

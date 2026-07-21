@@ -10,7 +10,7 @@ The key output of this folder is `../ansible/inventory.ini` — the handoff to A
 
 ### `main.tf`
 
-This is the entire infrastructure definition in one file. Let's go through every block.
+Contains the Terraform provider block, data sources (VPC, subnets, Ubuntu AMI), EC2 instances, and the `local_file` resource that renders `inventory.ini`. No security group rules — those live in `security-groups.tf`.
 
 **Terraform block** — configures Terraform itself, not your infrastructure:
 
@@ -90,27 +90,50 @@ Three filters narrowing down to the exact AMI type:
 
 **Security group** — the firewall around your instances:
 
+All inbound/egress rules are defined inline on the `aws_security_group` resource in `security-groups.tf`. Six ingress rules + one egress — only ports 22, 80, 443 are open to the internet. 6443 and 10250 are locked to `var.admin_cidr`.
+
 ```hcl
 resource "aws_security_group" "k8s" {
   name        = "${var.cluster_name}-sg"
-  description = "Security group for Kubernetes cluster"
+  description = "Security group for Kubernetes cluster nodes"
   vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    description = "SSH for Ansible"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.admin_cidr]
+  }
+  ingress {
+    description = "HTTP for Caddy hostNetwork"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    description = "HTTPS for Caddy hostNetwork"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  # ... kube-apiserver (6443), kubelet (10250), internal all, egress all
+}
 ```
 
-A `resource` block creates and manages infrastructure — unlike data sources, which only read. `${var.cluster_name}-sg` becomes `k8s-sg`. `vpc_id` binds it to the default VPC.
+| Rule | Port | Source | Purpose |
+|---|---|---|---|
+| SSH | 22 TCP | `var.admin_cidr` (default `0.0.0.0/0`) | Ansible provisioning. Lock to your IP for production. |
+| HTTP | 80 TCP | `0.0.0.0/0` | Caddy Deployment with `hostNetwork: true` binds port 80. Let's Encrypt HTTP-01 challenge. |
+| HTTPS | 443 TCP | `0.0.0.0/0` | Caddy terminates TLS on port 443 (hostNetwork). |
+| kube-apiserver | 6443 TCP | `var.admin_cidr` | `kubectl` CLI and `kubeadm join`. |
+| Kubelet API | 10250 TCP | `var.admin_cidr` | `kubectl exec/logs/port-forward`. |
+| Internal all | 0–65535 all | Self-referencing | Unfiltered node-to-node. Cilium eBPF, etcd, pod networking. |
+| Outbound | 0–65535 all | `0.0.0.0/0` | Package and image pulls. |
 
-Each `ingress` block is an inbound firewall rule. `0.0.0.0/0` means any IP — wide open, fine for learning, lock down in production.
-
-| Rule | Port(s) | Why Kubernetes needs it |
-|---|---|---|
-| SSH | 22 TCP | Ansible connects here to configure the OS. Without it, no remote access. |
-| kube-apiserver | 6443 TCP | The `kubectl` CLI, `kubeadm join`, and internal control plane components talk to this. |
-| Kubelet API | 10250 TCP | The apiserver uses this to do `kubectl exec`, `kubectl logs`, `kubectl port-forward`. |
-| NodePort | 30000–32767 TCP | When you create a `type: NodePort` Service, Kubernetes opens one port in this range on every node. External traffic hits any node IP on this port. |
-| Calico BGP | 179 TCP | Calico uses BGP to exchange pod routes between nodes. Every node peers with every other node. Only needed if using Calico instead of the default Cilium CNI. |
-| Calico VXLAN | 4789 UDP | Alternative to BGP — encapsulates pod traffic in VXLAN tunnels. Standard VXLAN port. Only needed if using Calico instead of the default Cilium CNI. |
-
-The egress rule uses `protocol = "-1"` and `from_port = 0, to_port = 0` — the Terraform idiom for "all protocols, all ports." Nodes need outbound internet to pull container images and APT packages.
+No NodePort ports are needed — the banking-demo chart deploys Kong as ClusterIP, and Caddy is the only external entry point.
 
 **EC2 instances** — the actual virtual machines:
 
@@ -188,9 +211,28 @@ resource "local_file" "ansible_inventory" {
 `templatefile(path, vars)` reads a template, substitutes variables, and returns a rendered string. Then `local_file` writes that string to disk.
 
 - `coalesce(a, "")` returns the first non-null/non-empty value. During `terraform plan`, `public_ip` might not be known yet (AWS assigns IPs after launch). `coalesce` prevents an error by falling back to empty string.
+- `master_public_ip` is the first instance's public IP — used for DuckDNS A-record updates and SSH.
 - `slice(list, 1, var.node_count)` extracts elements `[1]` through `[node_count-1]` — all instances except index 0 (the master). With `node_count = 3`, this gives `[k8s[1], k8s[2]]`.
 
+Private IPs are no longer needed in the inventory. Caddy runs as a DaemonSet inside K8s with `hostNetwork: true` and resolves Kong via CoreDNS (`kong.banking.svc.cluster.local:8000`), so no manual IP wiring is required.
+
 `depends_on` creates an explicit ordering dependency. Terraform normally infers dependencies from references (`aws_instance.k8s[0].public_ip`), but `slice()` references the collection indirectly. Without `depends_on`, Terraform might write the inventory before instances are fully created.
+
+### `security-groups.tf`
+
+All security group rules are defined inline on the `aws_security_group` resource — no separate `aws_security_group_rule` resources needed. Six ingress rules + one egress rule:
+
+| Rule | Port | Source | Purpose |
+|---|---|---|---|
+| SSH | 22 TCP | `var.admin_cidr` | Ansible provisioning |
+| HTTP | 80 TCP | `0.0.0.0/0` | Caddy hostNetwork (HTTP-01 backoff) |
+| HTTPS | 443 TCP | `0.0.0.0/0` | Caddy TLS termination |
+| kube-apiserver | 6443 TCP | `var.admin_cidr` | `kubectl` + `kubeadm join` |
+| Kubelet API | 10250 TCP | `var.admin_cidr` | `kubectl exec/logs/port-forward` |
+| Internal all | 0-65535 all | Self | Node-to-node (Cilium eBPF, etcd) |
+| Outbound | 0-65535 all | `0.0.0.0/0` | Package and image pulls |
+
+No NodePort ports (30000-32767) are opened. Kong stays `ClusterIP` — Caddy resolves it via CoreDNS.
 
 ### `variables.tf`
 
@@ -203,6 +245,7 @@ Declares every configurable input with a type and optional default:
 | `instance_type` | `string` | `t3a.medium` | 2 vCPU, 4 GB RAM — AMD EPYC, cheapest t3 variant |
 | `node_count` | `number` | `3` | Index 0 = master, rest = workers |
 | `key_name` | `string` | **none** | Required — Terraform will prompt if not set. This is your EC2 key pair name from the AWS console. |
+| `admin_cidr` | `string` | `0.0.0.0/0` | CIDR allowed to SSH and access kube-apiserver. Lock to your IP for production. |
 | `ssh_private_key_path` | `string` | `~/.ssh/id_ed25519` | Path to the private key matching `key_name`. Fed into the Ansible inventory. |
 | `root_volume_size` | `number` | `20` | GB, gp3 |
 
@@ -233,16 +276,19 @@ An HCL template that Terraform renders into an Ansible INI inventory file. Let's
 ansible_user=${ansible_user}
 ansible_ssh_private_key_file=${ssh_key_path}
 ansible_python_interpreter=/usr/bin/python3
+ansible_ssh_common_args='-o StrictHostKeyChecking=accept-new'
 ```
 
 `[all:vars]` is Ansible INI syntax for "variables that apply to every host." `${ansible_user}` gets replaced with `"ubuntu"` during rendering. `ansible_python_interpreter=/usr/bin/python3` is explicit because Ubuntu no longer ships Python 2 and some SSH connections might not auto-detect Python 3.
 
+`StrictHostKeyChecking=accept-new` tells SSH to accept new host keys without prompting — critical for automation since the instances get fresh keys on every `terraform apply`. Cons: this bypasses the protection that prevents MITM attacks. Acceptable for learning; lock down in production by pre-populating `known_hosts`.
+
 ```ini
 [master]
-master ansible_host=${master_public_ip}
+master-node ansible_host=${master_public_ip}
 ```
 
-`[master]` defines an Ansible group with one host named `master`. `${master_public_ip}` gets replaced with the real public IP of instance `k8s[0]`. `ansible_host` is the IP Ansible SSH's to.
+`[master]` defines an Ansible group with one host named `master-node`. `${master_public_ip}` gets replaced with the real public IP of instance `k8s[0]` — this is what Ansible SSH's to via `ansible_host`.
 
 ```hcl
 [workers]
@@ -251,13 +297,15 @@ worker-${i + 1} ansible_host=${ip.public_ip}
 %{ endfor ~}
 ```
 
-This is a template loop. `worker_public_ips` is the list of instance objects from `slice(aws_instance.k8s, 1, var.node_count)`. `i` is the loop index (0, 1), `ip` is the instance object. `ip.public_ip` accesses that instance's attribute. The `~` strips trailing whitespace after the directive.
+This is a template loop. `worker_public_ips` is the list of instance objects from `slice(aws_instance.k8s, 1, var.node_count)`. `i` is the loop index (0, 1), `ip` is the instance object. `ip.public_ip` accesses that instance's attribute. The `~` strips trailing whitespace.
 
 Renders to:
 ```ini
 worker-1 ansible_host=54.12.34.56
 worker-2 ansible_host=54.78.90.12
 ```
+
+Private IPs are not needed in the inventory anymore. Kubernetes CoreDNS handles internal service discovery — Caddy resolves `kong.banking.svc.cluster.local:8000` without knowing any node's IP.
 
 ```ini
 [k8s:children]

@@ -2,7 +2,9 @@
 
 Initialize the control plane, join workers, and install a CNI network plugin (Cilium by default).
 
-> **Prerequisite:** Complete [OS Preparation](ansible/setup.yml) first. All nodes must have `kubeadm`, `kubelet`, `kubectl`, and `containerd` installed.
+> **Automation available:** This entire process is now automated via Ansible roles (`site.yml`). Run `make cluster` or `ansible-playbook -i inventory.ini ansible/site.yml --tags os,k8s,cni,verify` for a single-command setup. The steps below remain for learning/debugging.
+
+> **Prerequisite:** Complete OS preparation first. Run `ansible-playbook -i inventory.ini ansible/site.yml --tags os`. All nodes must have `kubeadm`, `kubelet`, `kubectl`, and `containerd` installed.
 
 ## Overview
 

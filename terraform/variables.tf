@@ -27,6 +27,12 @@ variable "key_name" {
   type        = string
 }
 
+variable "admin_cidr" {
+  description = "CIDR block allowed to SSH and access kube-apiserver"
+  type        = string
+  default     = "0.0.0.0/0"
+}
+
 variable "ssh_private_key_path" {
   description = "Path to SSH private key for Ansible"
   type        = string
