@@ -1,16 +1,16 @@
 # Manual Bootstrapping — Kubernetes Core
 
-Initialize the control plane, join workers, and install the CNI network plugin.
+Initialize the control plane, join workers, and install a CNI network plugin (Cilium by default).
 
 > **Prerequisite:** Complete [OS Preparation](ansible/setup.yml) first. All nodes must have `kubeadm`, `kubelet`, `kubectl`, and `containerd` installed.
 
 ## Overview
 
-| Step | Node    | Action                         |
-|------|---------|--------------------------------|
-| 1–5  | Master  | Init cluster, kubeconfig, CNI  |
-| 6–7  | Workers | Join cluster                   |
-| 8    | Master  | Verify all nodes Ready          |
+| Step | Node    | Action                              |
+|------|---------|-------------------------------------|
+| 1–5  | Master  | Init cluster, kubeconfig, CNI       |
+| 6–7  | Workers | Join cluster                        |
+| 8    | Master  | Verify all nodes Ready              |
 
 ## 1. SSH into Master Node
 
@@ -62,7 +62,47 @@ kubectl get nodes
 
 Output should show the master node in `NotReady` state (network not yet configured).
 
-## 5. Install Calico CNI
+## 5. Install a CNI
+
+Pick one CNI plugin (default: Cilium).
+
+### Default: Cilium
+
+Install the Cilium CLI:
+
+```bash
+CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
+CLI_ARCH=amd64
+if [ "$(uname -m)" = "aarch64" ]; then CLI_ARCH=arm64; fi
+curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
+sudo tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin
+rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+```
+
+Install Cilium:
+
+```bash
+cilium install --version 1.19.6
+```
+
+Wait for Cilium pods to be ready:
+
+```bash
+cilium status --wait
+```
+
+All pods should reach `Running` before continuing. At this point, the master node transitions to `Ready`.
+
+Verify Cilium is operational:
+
+```bash
+cilium connectivity test
+```
+
+### Alternative: Calico
+
+Install the Tigera operator and custom resources:
 
 ```bash
 kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
@@ -140,7 +180,15 @@ kubeadm token create --print-join-command
 
 **Node stuck at `NotReady`**
 
-Check Calico pods:
+Check Cilium status:
+
+```bash
+cilium status
+kubectl get pods -n kube-system | grep cilium
+kubectl describe pod -n kube-system -l k8s-app=cilium
+```
+
+If using Calico instead:
 
 ```bash
 kubectl get pods -n calico-system

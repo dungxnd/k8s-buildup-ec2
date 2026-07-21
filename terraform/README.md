@@ -107,8 +107,8 @@ Each `ingress` block is an inbound firewall rule. `0.0.0.0/0` means any IP — w
 | kube-apiserver | 6443 TCP | The `kubectl` CLI, `kubeadm join`, and internal control plane components talk to this. |
 | Kubelet API | 10250 TCP | The apiserver uses this to do `kubectl exec`, `kubectl logs`, `kubectl port-forward`. |
 | NodePort | 30000–32767 TCP | When you create a `type: NodePort` Service, Kubernetes opens one port in this range on every node. External traffic hits any node IP on this port. |
-| Calico BGP | 179 TCP | Calico uses BGP to exchange pod routes between nodes. Every node peers with every other node. |
-| Calico VXLAN | 4789 UDP | Alternative to BGP — encapsulates pod traffic in VXLAN tunnels. Standard VXLAN port. |
+| Calico BGP | 179 TCP | Calico uses BGP to exchange pod routes between nodes. Every node peers with every other node. Only needed if using Calico instead of the default Cilium CNI. |
+| Calico VXLAN | 4789 UDP | Alternative to BGP — encapsulates pod traffic in VXLAN tunnels. Standard VXLAN port. Only needed if using Calico instead of the default Cilium CNI. |
 
 The egress rule uses `protocol = "-1"` and `from_port = 0, to_port = 0` — the Terraform idiom for "all protocols, all ports." Nodes need outbound internet to pull container images and APT packages.
 

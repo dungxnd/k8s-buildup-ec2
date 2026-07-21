@@ -21,6 +21,13 @@ Bootstraps a 3-node Kubernetes cluster (1 master + 2 workers) on AWS EC2 spot in
 │  ├── Sysctl (bridge-nf-call-iptables, ip_forward) │
 │  ├── containerd (SystemdCgroup=true)     │
 │  └── kubelet, kubeadm, kubectl (hold)    │
+└──────────────────┬───────────────────────┘
+                   │
+┌──────────────────▼───────────────────────┐
+│  Manual Bootstrap (kubeadm)              │
+│  ├── kubeadm init (master)               │
+│  ├── CNI: Cilium (default) or Calico     │
+│  └── kubeadm join (workers)              │
 └──────────────────────────────────────────┘
 ```
 
@@ -98,11 +105,20 @@ ansible all -i ansible/inventory.ini -a "containerd --version"
 | Port      | Protocol | Purpose                | Scope   |
 |-----------|----------|------------------------|---------|
 | 22        | TCP      | SSH                    | All     |
-| 6443      | TCP      | Kube-apiserver         | Master  |
+| 6443      | TCP      | Kube-apiserver         | All     |
 | 10250     | TCP      | Kubelet API            | All     |
 | 30000-32767 | TCP   | NodePort Services      | All     |
-| 179       | TCP      | Calico BGP             | All     |
-| 4789      | UDP      | Calico VXLAN           | All     |
+| 179       | TCP      | Calico BGP (optional)  | All     |
+| 4789      | UDP      | Calico VXLAN (optional)| All     |
+
+## CNI
+
+**Cilium** is the default CNI, installed via the Cilium CLI during manual bootstrapping.
+Cilium uses eBPF and does not require any extra firewall ports beyond the self-referencing
+ingress rule (node-to-node traffic is allowed on all ports).
+
+**Calico** is available as an alternative — see [MANUAL_BOOTSTRAPPING.md](MANUAL_BOOTSTRAPPING.md#alternative-calico)
+for installation instructions.
 
 ## Defaults
 
