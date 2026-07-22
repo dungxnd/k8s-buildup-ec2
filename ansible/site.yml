@@ -34,7 +34,7 @@
   tasks:
     - name: Wait for all nodes to become Ready
       ansible.builtin.shell: |
-        kubectl get nodes --no-headers 2>/dev/null | awk '{print $2}' | grep -cv Ready
+        kubectl get nodes --no-headers 2>/dev/null | awk '{print $2}' | grep -cv Ready || true
       register: not_ready
       until: not_ready.stdout == "0"
       retries: 30

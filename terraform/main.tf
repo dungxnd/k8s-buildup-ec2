@@ -58,11 +58,14 @@ resource "aws_instance" "k8s" {
   vpc_security_group_ids      = [aws_security_group.k8s.id]
   associate_public_ip_address = true
 
-  instance_market_options {
-    market_type = "spot"
-    spot_options {
-      instance_interruption_behavior = "stop"
-      spot_instance_type             = "persistent"
+  dynamic "instance_market_options" {
+    for_each = var.use_spot_instances ? [1] : []
+    content {
+      market_type = "spot"
+      spot_options {
+        instance_interruption_behavior = "stop"
+        spot_instance_type             = "persistent"
+      }
     }
   }
 

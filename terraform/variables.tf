@@ -39,6 +39,12 @@ variable "ssh_private_key_path" {
   default     = "~/.ssh/id_ed25519"
 }
 
+variable "use_spot_instances" {
+  description = "Use spot instances to reduce cost (set to false for on-demand)"
+  type        = bool
+  default     = true
+}
+
 variable "root_volume_size" {
   description = "Root EBS volume size (GB)"
   type        = number
